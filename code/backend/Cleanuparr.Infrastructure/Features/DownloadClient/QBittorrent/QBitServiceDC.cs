@@ -31,7 +31,7 @@ public partial class QBitService
     public override List<object>? FilterDownloadsToChangeCategoryAsync(List<object>? downloads, List<string> categories)
     {
         var downloadCleanerConfig = ContextProvider.Get<DownloadCleanerConfig>(nameof(DownloadCleanerConfig));
-        
+
         return downloads
             ?.Cast<TorrentInfo>()
             .Where(x => !string.IsNullOrEmpty(x.Hash))
@@ -88,7 +88,7 @@ public partial class QBitService
             {
                 continue;
             }
-            
+
             var downloadCleanerConfig = ContextProvider.Get<DownloadCleanerConfig>(nameof(DownloadCleanerConfig));
 
             if (!downloadCleanerConfig.DeletePrivate)
@@ -114,6 +114,13 @@ public partial class QBitService
 
             ContextProvider.Set("downloadName", download.Name);
             ContextProvider.Set("hash", download.Hash);
+
+            if (string.Equals(download.State, "metaDL", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Torrent {hash} is stuck in Metadata state, accumulating strike.", download.Hash);
+                await _striker.AddStrikeAsync(download.Hash, reason: "Stuck in Metadata");
+                continue;
+            }
 
             SeedingCheckResult result = ShouldCleanDownload(download.Ratio, download.SeedingTime ?? TimeSpan.Zero, category);
 
@@ -144,7 +151,7 @@ public partial class QBitService
         {
             return;
         }
-        
+
         _logger.LogDebug("Creating category {name}", name);
 
         await _dryRunInterceptor.InterceptAsync(CreateCategory, name);
@@ -156,7 +163,7 @@ public partial class QBitService
         {
             return;
         }
-        
+
         var downloadCleanerConfig = ContextProvider.Get<DownloadCleanerConfig>(nameof(DownloadCleanerConfig));
 
         if (!string.IsNullOrEmpty(downloadCleanerConfig.UnlinkedIgnoredRootDir))
@@ -238,7 +245,7 @@ public partial class QBitService
             }
 
             await _dryRunInterceptor.InterceptAsync(ChangeCategory, download.Hash, downloadCleanerConfig.UnlinkedTargetCategory);
-            
+
             await _eventPublisher.PublishCategoryChanged(download.Category, downloadCleanerConfig.UnlinkedTargetCategory, downloadCleanerConfig.UnlinkedUseTag);
 
             if (downloadCleanerConfig.UnlinkedUseTag)
@@ -263,11 +270,11 @@ public partial class QBitService
     {
         await _client.AddCategoryAsync(name);
     }
-    
+
     protected virtual async Task ChangeCategory(string hash, string newCategory)
     {
         var downloadCleanerConfig = ContextProvider.Get<DownloadCleanerConfig>(nameof(DownloadCleanerConfig));
-        
+
         if (downloadCleanerConfig.UnlinkedUseTag)
         {
             await _client.AddTorrentTagAsync([hash], newCategory);
